@@ -1,11 +1,11 @@
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from datetime import timedelta, datetime
+from datetime import datetime
+import datetime as dt
 from airflow import DAG
 from airflow.operators.bash_operator import BashOperator
 from airflow.operators.python_operator import PythonOperator
-from airflow.utils.dates import days_ago
 from airflow.hooks.postgres_hook import PostgresHook
 from airflow.providers.postgres.operators.postgres import PostgresOperator
 from airflow import settings
@@ -19,7 +19,8 @@ try:
             host='postgres',
             login='airflow',
             password='airflow',
-            port=5432
+            port=5432,
+            schema='airflow'
     )
     session = settings.Session()
     session.add(conn)
@@ -111,16 +112,17 @@ def get_data_from_website():
 
     ## Write the scrapped data into a csv format
     df = pd.DataFrame(df_data)
-    df.to_csv('/opt/airflow/data/table_output.csv', index=False)
+    df['UPDATED_TS'] =  dt.datetime.now()
+    df.to_csv('/opt/airflow/data/raw_table_output.csv', index=False)
 
 
 def load_raw_data():
     conn = PostgresHook(postgres_conn_id='dev_db').get_conn()
     cur = conn.cursor()
     SQL_STATEMENT = """
-        COPY raw FROM STDIN DELIMITER ',' CSV HEADER
+        COPY raw_table FROM STDIN DELIMITER ',' CSV HEADER
         """
-    with open('/opt/airflow/data/table_output.csv', 'r') as f:
+    with open('/opt/airflow/data/raw_table_output.csv', 'r') as f:
         cur.copy_expert(SQL_STATEMENT, f)
         conn.commit()
 
@@ -163,5 +165,21 @@ raw_data_loading = PythonOperator(
     dag = dag
 )
 
+# Task 4: Create fact data table
+create_fact_table = PostgresOperator(
+    task_id="create_fact_table",
+    postgres_conn_id="dev_db",
+    sql="sql/fact_schema.sql",
+)
+
+# Task 5: Create dimension data table
+create_dimension_table = PostgresOperator(
+    task_id="create_dimension_table",
+    postgres_conn_id="dev_db",
+    sql="sql/dimension_schema.sql",
+)
+
 # Set up the dependencies
 task_start >> web_scraping >> create_raw_table >> raw_data_loading
+raw_data_loading.set_downstream(create_fact_table)
+raw_data_loading.set_downstream(create_dimension_table)
