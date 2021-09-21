@@ -1,5 +1,5 @@
 # scrapy-scrapper
-A mini python web scrapping project
+A mini python web scrapping and pipelining project orchestrated with Airflow, containerized with Docker
 
 ## Setup
 Before setting up and running Apache Airflow with docker, please install Docker and Docker Compose:
